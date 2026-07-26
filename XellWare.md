@@ -19,7 +19,8 @@ if CoreGui:FindFirstChild("XellwareHub") then
 end
 
 -- ==== VARIABLES ====
-local HitboxEnabled = false
+local RegularHitboxEnabled = false
+local SmartHitboxEnabled = false
 local HitboxSize = 8.5 
 local HitboxTrans = 0.0 -- 0 means fully visible outline, 1 means hidden
 local GroundHitEnabled = false
@@ -66,7 +67,7 @@ applyRetroTheme(OpenButton)
 
 local MainFrame = Instance.new("Frame", ScreenGui)
 MainFrame.Position = UDim2.new(0.5, -175, 0.5, -150)
-MainFrame.Size = UDim2.new(0, 350, 0, 300)
+MainFrame.Size = UDim2.new(0, 350, 0, 320) -- Slightly taller for the new button
 MainFrame.Active = true
 MainFrame.Draggable = true 
 applyRetroTheme(MainFrame)
@@ -211,12 +212,20 @@ local function createSlider(parent, text, minVal, maxVal, defaultVal, callback)
 end
 
 -- Populate UI Elements
-local Toggle_Hitbox = createToggle(Page_Hitbox, "Smart Hitbox", false)
+local RecLabel = Instance.new("TextLabel", Page_Hitbox)
+RecLabel.Size = UDim2.new(1, -10, 0, 20)
+RecLabel.BackgroundTransparency = 1
+RecLabel.Text = "[ Recommended Hitbox Size: 8.5 ]"
+RecLabel.TextColor3 = Color3.new(0.8, 0.8, 0.8)
+RecLabel.Font = Enum.Font.Code
+RecLabel.TextSize = 13
+RecLabel.TextXAlignment = Enum.TextXAlignment.Center
 
--- FIX 1: Locked slider range from 1.0 to 8.5
-createSlider(Page_Hitbox, "Hitbox Size", 1.0, 8.5, 8.5, function(val) HitboxSize = val end)
+-- NEW: Independent Toggles for Regular & Smart Hitboxes
+local Toggle_RegularHitbox = createToggle(Page_Hitbox, "Regular Hitbox", false)
+local Toggle_SmartHitbox = createToggle(Page_Hitbox, "Smart Hitbox (99% Hit Rate)", false)
 
--- FIX 2: Slider controls OUTLINE transparency specifically
+createSlider(Page_Hitbox, "Hitbox Size", 1.0, 25.0, 8.5, function(val) HitboxSize = val end)
 createSlider(Page_Hitbox, "Hide Visuals", 0.0, 1.0, 0.0, function(val) HitboxTrans = val end)
 local Toggle_Ground = createToggle(Page_Hitbox, "Hit Grounded (Ragdoll)", false)
 
@@ -236,9 +245,14 @@ TabBtn_Weave.MouseButton1Click:Connect(function() switchTab(TabBtn_Weave, Page_W
 CloseButton.MouseButton1Click:Connect(function() MainFrame.Visible = false; OpenButton.Visible = true end)
 OpenButton.MouseButton1Click:Connect(function() MainFrame.Visible = true; OpenButton.Visible = false end)
 
-Toggle_Hitbox.MouseButton1Click:Connect(function() 
-    HitboxEnabled = not HitboxEnabled
-    Toggle_Hitbox.Text = "Smart Hitbox: " .. (HitboxEnabled and "ON" or "OFF")
+Toggle_RegularHitbox.MouseButton1Click:Connect(function() 
+    RegularHitboxEnabled = not RegularHitboxEnabled
+    Toggle_RegularHitbox.Text = "Regular Hitbox: " .. (RegularHitboxEnabled and "ON" or "OFF")
+end)
+
+Toggle_SmartHitbox.MouseButton1Click:Connect(function() 
+    SmartHitboxEnabled = not SmartHitboxEnabled
+    Toggle_SmartHitbox.Text = "Smart Hitbox (99% Hit Rate): " .. (SmartHitboxEnabled and "ON" or "OFF")
 end)
 
 Toggle_Ground.MouseButton1Click:Connect(function() 
@@ -261,7 +275,8 @@ end)
 
 -- ==== SMART HITBOX: SPATIAL QUERY LOOP ====
 local function executeSmartSwing()
-    if isAttacking or not HitboxEnabled then return end
+    -- Only run the guaranteed hit loop if the Smart Hitbox toggle is ON
+    if isAttacking or not SmartHitboxEnabled then return end
     isAttacking = true
     table.clear(hitCharacters)
 
@@ -357,7 +372,7 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
--- ==== HITBOX & VISUAL ESP LOOP ====
+-- ==== REGULAR HITBOX & VISUAL ESP LOOP ====
 RunService.RenderStepped:Connect(function()
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChild("Humanoid") then
@@ -365,9 +380,10 @@ RunService.RenderStepped:Connect(function()
             local hrp = player.Character.HumanoidRootPart
             local humanoid = player.Character.Humanoid
             
-            if HitboxEnabled and humanoid.Health > 0 then
+            -- Only changes size and adds the red outline if the Regular Hitbox toggle is ON
+            if RegularHitboxEnabled and humanoid.Health > 0 then
                 hrp.Size = Vector3.new(HitboxSize, HitboxSize, HitboxSize)
-                hrp.Transparency = 1 -- Block stays invisible to avoid clutter
+                hrp.Transparency = 1 
                 hrp.CanCollide = false 
                 
                 local outline = hrp:FindFirstChild("HitboxOutline")
@@ -379,7 +395,7 @@ RunService.RenderStepped:Connect(function()
                     outline.Color3 = Color3.new(1, 0, 0) -- Pure Red
                     outline.Parent = hrp
                 end
-                -- Outline transparency is now controlled by the "Hide Visuals" slider
+                
                 outline.Transparency = HitboxTrans 
             else
                 hrp.Size = Vector3.new(2, 2, 1) 
