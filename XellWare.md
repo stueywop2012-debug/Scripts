@@ -8,7 +8,6 @@ local LocalPlayer = Players.LocalPlayer
 -- Ensure Server Hit Event Exists (For Smart Hitbox)
 local HitEvent = ReplicatedStorage:FindFirstChild("HitEvent")
 if not HitEvent then
-    -- Fallback in case the server script hasn't created it yet
     HitEvent = Instance.new("RemoteEvent")
     HitEvent.Name = "HitEvent"
     HitEvent.Parent = ReplicatedStorage
@@ -21,8 +20,8 @@ end
 
 -- ==== VARIABLES ====
 local HitboxEnabled = false
-local HitboxSize = 8.5 -- Maximum Hit Range / Box Size
-local HitboxTrans = 0.5 -- Default transparency for the giant block
+local HitboxSize = 8.5 
+local HitboxTrans = 0.0 -- 0 means fully visible outline, 1 means hidden
 local GroundHitEnabled = false
 
 local AutoWeaveEnabled = false
@@ -82,8 +81,8 @@ Title.BackgroundTransparency = 1
 Title.Position = UDim2.new(0, 10, 0, 0)
 Title.Size = UDim2.new(0.7, 0, 1, 0)
 Title.Text = "Xellware Hub - God Mode"
-Title.TextColor3 = Color3.new(1, 1, 1) -- FIX: Restored White Text
-Title.Font = Enum.Font.Code            -- FIX: Matched the retro font
+Title.TextColor3 = Color3.new(1, 1, 1)
+Title.Font = Enum.Font.Code
 Title.TextSize = 18
 Title.TextXAlignment = Enum.TextXAlignment.Left
 
@@ -213,8 +212,12 @@ end
 
 -- Populate UI Elements
 local Toggle_Hitbox = createToggle(Page_Hitbox, "Smart Hitbox", false)
-createSlider(Page_Hitbox, "Attack Range", 1.0, 25.0, 8.5, function(val) HitboxSize = val end)
-createSlider(Page_Hitbox, "Hitbox Trans", 0.0, 1.0, 0.5, function(val) HitboxTrans = val end)
+
+-- FIX 1: Locked slider range from 1.0 to 8.5
+createSlider(Page_Hitbox, "Hitbox Size", 1.0, 8.5, 8.5, function(val) HitboxSize = val end)
+
+-- FIX 2: Slider controls OUTLINE transparency specifically
+createSlider(Page_Hitbox, "Hide Visuals", 0.0, 1.0, 0.0, function(val) HitboxTrans = val end)
 local Toggle_Ground = createToggle(Page_Hitbox, "Hit Grounded (Ragdoll)", false)
 
 local Toggle_Weave = createToggle(Page_Weave, "God Auto Weave", false)
@@ -354,7 +357,7 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
--- ==== FIX: EXPANDED HITBOX & VISUAL ESP LOOP ====
+-- ==== HITBOX & VISUAL ESP LOOP ====
 RunService.RenderStepped:Connect(function()
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChild("Humanoid") then
@@ -363,12 +366,10 @@ RunService.RenderStepped:Connect(function()
             local humanoid = player.Character.Humanoid
             
             if HitboxEnabled and humanoid.Health > 0 then
-                -- 1. Physically expand the Hitbox to guarantee 99% hit rate on client side
                 hrp.Size = Vector3.new(HitboxSize, HitboxSize, HitboxSize)
-                hrp.Transparency = HitboxTrans
+                hrp.Transparency = 1 -- Block stays invisible to avoid clutter
                 hrp.CanCollide = false 
                 
-                -- 2. Draw the massive red outline exactly like the image
                 local outline = hrp:FindFirstChild("HitboxOutline")
                 if not outline then
                     outline = Instance.new("SelectionBox")
@@ -378,11 +379,10 @@ RunService.RenderStepped:Connect(function()
                     outline.Color3 = Color3.new(1, 0, 0) -- Pure Red
                     outline.Parent = hrp
                 end
-                -- Make sure the outline is fully visible
-                outline.Transparency = 0 
+                -- Outline transparency is now controlled by the "Hide Visuals" slider
+                outline.Transparency = HitboxTrans 
             else
-                -- Reset when turned off or target dies
-                hrp.Size = Vector3.new(2, 2, 1) -- Standard Roblox HRP size
+                hrp.Size = Vector3.new(2, 2, 1) 
                 hrp.Transparency = 1
                 
                 local outline = hrp:FindFirstChild("HitboxOutline")
