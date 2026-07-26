@@ -1,8 +1,18 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CoreGui = (gethui and gethui()) or game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
+
+-- Ensure Server Hit Event Exists (For Smart Hitbox)
+local HitEvent = ReplicatedStorage:FindFirstChild("HitEvent")
+if not HitEvent then
+    -- Fallback in case the server script hasn't created it yet
+    HitEvent = Instance.new("RemoteEvent")
+    HitEvent.Name = "HitEvent"
+    HitEvent.Parent = ReplicatedStorage
+end
 
 -- Prevent duplicate GUIs
 if CoreGui:FindFirstChild("XellwareHub") then
@@ -11,18 +21,20 @@ end
 
 -- ==== VARIABLES ====
 local HitboxEnabled = false
-local HitboxSize = 2.0
-local HitboxTrans = 0 
+local HitboxSize = 8.5 -- Maximum Hit Range / Box Size
+local HitboxTrans = 0.5 -- Default transparency for the giant block
 local GroundHitEnabled = false
 
 local AutoWeaveEnabled = false
 local CurrentWeaveState = false
-local WeaveBlinkSpeed = 0.05
-local AttackPauseUntil = 0
+local WeaveBlinkSpeed = 0.02
 local NextWeaveToggle = 0
 
--- Locked internally: This guarantees auto-connect forces the hit to register 100%
-local HitRegisterPauseTime = 0.15 
+local AttackPauseUntil = 0
+local HitRegisterPauseTime = 0.50
+
+local isAttacking = false
+local hitCharacters = {}
 
 -- ==== RETRO UI THEME HELPER ====
 local function applyRetroTheme(element)
@@ -70,10 +82,10 @@ Title.BackgroundTransparency = 1
 Title.Position = UDim2.new(0, 10, 0, 0)
 Title.Size = UDim2.new(0.7, 0, 1, 0)
 Title.Text = "Xellware Hub - God Mode"
+Title.TextColor3 = Color3.new(1, 1, 1) -- FIX: Restored White Text
+Title.Font = Enum.Font.Code            -- FIX: Matched the retro font
 Title.TextSize = 18
 Title.TextXAlignment = Enum.TextXAlignment.Left
-Title.TextColor3 = Color3.new(1, 1, 1)
-Title.Font = Enum.Font.Code
 
 local CloseButton = Instance.new("TextButton", TopBar)
 CloseButton.Position = UDim2.new(1, -35, 0, 5)
@@ -143,9 +155,9 @@ local function createSlider(parent, text, minVal, maxVal, defaultVal, callback)
     label.Position = UDim2.new(0, 5, 0, 0)
     label.BackgroundTransparency = 1
     label.Text = text .. ": " .. tostring(defaultVal)
-    label.TextSize = 14
-    label.Font = Enum.Font.Code
     label.TextColor3 = Color3.new(1, 1, 1)
+    label.Font = Enum.Font.Code
+    label.TextSize = 14
     label.TextXAlignment = Enum.TextXAlignment.Left
     
     local track = Instance.new("Frame", container)
@@ -200,13 +212,14 @@ local function createSlider(parent, text, minVal, maxVal, defaultVal, callback)
 end
 
 -- Populate UI Elements
-local Toggle_Hitbox = createToggle(Page_Hitbox, "Outlined Hitbox", false)
-createSlider(Page_Hitbox, "Hitbox Size", 1.0, 6.5, 2.0, function(val) HitboxSize = val end)
-createSlider(Page_Hitbox, "Outline Trans", 0.0, 1.0, 0.0, function(val) HitboxTrans = val end)
-local Toggle_Ground = createToggle(Page_Hitbox, "Ground Hit (Ragdoll)", false)
+local Toggle_Hitbox = createToggle(Page_Hitbox, "Smart Hitbox", false)
+createSlider(Page_Hitbox, "Attack Range", 1.0, 25.0, 8.5, function(val) HitboxSize = val end)
+createSlider(Page_Hitbox, "Hitbox Trans", 0.0, 1.0, 0.5, function(val) HitboxTrans = val end)
+local Toggle_Ground = createToggle(Page_Hitbox, "Hit Grounded (Ragdoll)", false)
 
 local Toggle_Weave = createToggle(Page_Weave, "God Auto Weave", false)
-createSlider(Page_Weave, "Blink Speed", 0.01, 0.30, 0.05, function(val) WeaveBlinkSpeed = val end)
+createSlider(Page_Weave, "Blink Speed", 0.005, 0.30, 0.02, function(val) WeaveBlinkSpeed = val end)
+createSlider(Page_Weave, "Hit Pause Time", 0.01, 1.00, 0.50, function(val) HitRegisterPauseTime = val end) 
 
 -- ==== UI LOGIC ====
 local function switchTab(activeBtn, activePage)
@@ -222,12 +235,12 @@ OpenButton.MouseButton1Click:Connect(function() MainFrame.Visible = true; OpenBu
 
 Toggle_Hitbox.MouseButton1Click:Connect(function() 
     HitboxEnabled = not HitboxEnabled
-    Toggle_Hitbox.Text = "Outlined Hitbox: " .. (HitboxEnabled and "ON" or "OFF")
+    Toggle_Hitbox.Text = "Smart Hitbox: " .. (HitboxEnabled and "ON" or "OFF")
 end)
 
 Toggle_Ground.MouseButton1Click:Connect(function() 
     GroundHitEnabled = not GroundHitEnabled
-    Toggle_Ground.Text = "Ground Hit (Ragdoll): " .. (GroundHitEnabled and "ON" or "OFF")
+    Toggle_Ground.Text = "Hit Grounded (Ragdoll): " .. (GroundHitEnabled and "ON" or "OFF")
 end)
 
 Toggle_Weave.MouseButton1Click:Connect(function() 
@@ -243,20 +256,74 @@ Toggle_Weave.MouseButton1Click:Connect(function()
     end
 end)
 
+-- ==== SMART HITBOX: SPATIAL QUERY LOOP ====
+local function executeSmartSwing()
+    if isAttacking or not HitboxEnabled then return end
+    isAttacking = true
+    table.clear(hitCharacters)
+
+    local startTime = os.clock()
+    local connection
+
+    local swingDuration = math.min(HitRegisterPauseTime, 0.4) 
+
+    connection = RunService.Heartbeat:Connect(function()
+        if os.clock() - startTime >= swingDuration then
+            isAttacking = false
+            connection:Disconnect()
+            return
+        end
+
+        local character = LocalPlayer.Character
+        if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+
+        local hrp = character.HumanoidRootPart
+        
+        local boxSize = Vector3.new(HitboxSize, HitboxSize, HitboxSize)
+        local boxCFrame = hrp.CFrame * CFrame.new(0, 0, -(HitboxSize / 2))
+
+        local overlapParams = OverlapParams.new()
+        overlapParams.FilterDescendantsInstances = {character}
+        overlapParams.FilterType = Enum.RaycastFilterType.Exclude
+
+        local partsInBox = workspace:GetPartBoundsInBox(boxCFrame, boxSize, overlapParams)
+
+        for _, part in ipairs(partsInBox) do
+            local model = part:FindFirstAncestorOfClass("Model")
+            
+            if model and model:FindFirstChild("Humanoid") then
+                local humanoid = model.Humanoid
+                local state = humanoid:GetState()
+                local isRagdolled = humanoid.PlatformStand or state == Enum.HumanoidStateType.Ragdoll or state == Enum.HumanoidStateType.FallingDown or state == Enum.HumanoidStateType.Physics
+                
+                if humanoid.Health > 0 and not hitCharacters[model] then
+                    if not isRagdolled or GroundHitEnabled then
+                        hitCharacters[model] = true 
+                        HitEvent:FireServer(model)
+                    end
+                end
+            end
+        end
+    end)
+end
+
 -- ==== AUTO-CONNECT: FORCING HITS TO REGISTER ====
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if not gameProcessed then
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            local now = os.clock()
             
-            -- Establish window to ensure your damage connects 
-            AttackPauseUntil = os.clock() + HitRegisterPauseTime
-            
-            -- Immediately unblink so the server reads the punch
-            if AutoWeaveEnabled and CurrentWeaveState and LocalPlayer.Character then
-                local core = LocalPlayer.Character:FindFirstChild("Core")
-                if core and core:FindFirstChild("Communicate") and core.Communicate:FindFirstChild("") then
-                    core.Communicate[""]:FireServer("Weave", nil, false, nil)
-                    CurrentWeaveState = false
+            if now >= AttackPauseUntil then
+                AttackPauseUntil = now + HitRegisterPauseTime
+                
+                executeSmartSwing()
+
+                if AutoWeaveEnabled and CurrentWeaveState and LocalPlayer.Character then
+                    local core = LocalPlayer.Character:FindFirstChild("Core")
+                    if core and core:FindFirstChild("Communicate") and core.Communicate:FindFirstChild("") then
+                        core.Communicate[""]:FireServer("Weave", nil, false, nil)
+                        CurrentWeaveState = false
+                    end
                 end
             end
         end
@@ -268,57 +335,56 @@ RunService.Heartbeat:Connect(function()
     if AutoWeaveEnabled and LocalPlayer.Character then
         local now = os.clock()
         
-        -- If we are in the attack pause window, DO NOT BLINK. Keep weave off so hits land.
-        if now < AttackPauseUntil then
-            return 
-        end
-        
         if now >= NextWeaveToggle then
             local core = LocalPlayer.Character:FindFirstChild("Core")
             if core and core:FindFirstChild("Communicate") and core.Communicate:FindFirstChild("") then
                 local remote = core.Communicate[""]
                 
-                CurrentWeaveState = not CurrentWeaveState
                 if CurrentWeaveState then
-                    remote:FireServer("Weave", nil, true)
-                else
                     remote:FireServer("Weave", nil, false, nil)
+                    CurrentWeaveState = false
+                    NextWeaveToggle = now 
+                else
+                    remote:FireServer("Weave", nil, true)
+                    CurrentWeaveState = true
+                    NextWeaveToggle = now + WeaveBlinkSpeed
                 end
-                
-                NextWeaveToggle = now + WeaveBlinkSpeed
             end
         end
     end
 end)
 
--- ==== CORE HITBOX LOGIC (REWOUND) ====
+-- ==== FIX: EXPANDED HITBOX & VISUAL ESP LOOP ====
 RunService.RenderStepped:Connect(function()
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChild("Humanoid") then
             
             local hrp = player.Character.HumanoidRootPart
             local humanoid = player.Character.Humanoid
-            local state = humanoid:GetState()
-            local isRagdolled = humanoid.PlatformStand or state == Enum.HumanoidStateType.Ragdoll or state == Enum.HumanoidStateType.FallingDown or state == Enum.HumanoidStateType.Physics
             
-            if HitboxEnabled and humanoid.Health > 0 and (not isRagdolled or GroundHitEnabled) then
+            if HitboxEnabled and humanoid.Health > 0 then
+                -- 1. Physically expand the Hitbox to guarantee 99% hit rate on client side
                 hrp.Size = Vector3.new(HitboxSize, HitboxSize, HitboxSize)
-                hrp.Transparency = 1 
+                hrp.Transparency = HitboxTrans
                 hrp.CanCollide = false 
                 
+                -- 2. Draw the massive red outline exactly like the image
                 local outline = hrp:FindFirstChild("HitboxOutline")
                 if not outline then
                     outline = Instance.new("SelectionBox")
                     outline.Name = "HitboxOutline"
                     outline.Adornee = hrp
-                    outline.LineThickness = 0.05
-                    outline.Color3 = Color3.new(1, 1, 1) 
+                    outline.LineThickness = 0.05 
+                    outline.Color3 = Color3.new(1, 0, 0) -- Pure Red
                     outline.Parent = hrp
                 end
-                outline.Transparency = HitboxTrans
+                -- Make sure the outline is fully visible
+                outline.Transparency = 0 
             else
-                hrp.Size = Vector3.new(2, 2, 1) 
-                hrp.Transparency = 1 
+                -- Reset when turned off or target dies
+                hrp.Size = Vector3.new(2, 2, 1) -- Standard Roblox HRP size
+                hrp.Transparency = 1
+                
                 local outline = hrp:FindFirstChild("HitboxOutline")
                 if outline then outline:Destroy() end
             end
