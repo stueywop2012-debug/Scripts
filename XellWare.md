@@ -5,7 +5,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CoreGui = (gethui and gethui()) or game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
 
--- Ensure Server Hit Event Exists (For Smart Hitbox)
+-- ==== ENSURE HIT EVENT EXISTS ====
 local HitEvent = ReplicatedStorage:FindFirstChild("HitEvent")
 if not HitEvent then
     HitEvent = Instance.new("RemoteEvent")
@@ -21,8 +21,9 @@ end
 -- ==== VARIABLES ====
 local RegularHitboxEnabled = false
 local SmartHitboxEnabled = false
+local AntiStandEnabled = true 
 local HitboxSize = 8.5 
-local HitboxTrans = 0.0 -- 0 means fully visible outline, 1 means hidden
+local HitboxTrans = 0.0 
 local GroundHitEnabled = false
 
 local AutoWeaveEnabled = false
@@ -35,15 +36,21 @@ local HitRegisterPauseTime = 0.50
 
 local isAttacking = false
 local hitCharacters = {}
+local guiVisible = true
 
--- ==== RETRO UI THEME HELPER ====
-local function applyRetroTheme(element)
-    element.BackgroundColor3 = Color3.new(0, 0, 0)
+-- ==== ENHANCED UI THEME HELPER ====
+local function applyRetroTheme(element, addCorner)
+    element.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
     
     local stroke = Instance.new("UIStroke", element)
-    stroke.Color = Color3.new(1, 1, 1)
+    stroke.Color = Color3.fromRGB(255, 255, 255)
     stroke.Thickness = 1
     stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    
+    if addCorner then
+        local corner = Instance.new("UICorner", element)
+        corner.CornerRadius = UDim.new(0, 6)
+    end
     
     if element:IsA("TextLabel") or element:IsA("TextButton") or element:IsA("TextBox") then
         element.TextColor3 = Color3.new(1, 1, 1)
@@ -51,35 +58,34 @@ local function applyRetroTheme(element)
     end
 end
 
--- ==== UI CONSTRUCTION (TABBED) ====
+-- ==== UI CONSTRUCTION ====
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "XellwareHub"
 ScreenGui.Parent = CoreGui
 ScreenGui.ResetOnSpawn = false
 
 local OpenButton = Instance.new("TextButton", ScreenGui)
-OpenButton.Position = UDim2.new(0, 10, 0, 10)
-OpenButton.Size = UDim2.new(0, 60, 0, 40)
+OpenButton.Position = UDim2.new(0, 15, 0, 15)
+OpenButton.Size = UDim2.new(0, 70, 0, 45)
 OpenButton.Text = "Open"
 OpenButton.TextSize = 16
 OpenButton.Visible = false
-applyRetroTheme(OpenButton)
+applyRetroTheme(OpenButton, true)
 
 local MainFrame = Instance.new("Frame", ScreenGui)
-MainFrame.Position = UDim2.new(0.5, -175, 0.5, -150)
-MainFrame.Size = UDim2.new(0, 350, 0, 320) -- Slightly taller for the new button
+MainFrame.Position = UDim2.new(0.5, -175, 0.5, -160)
+MainFrame.Size = UDim2.new(0, 350, 0, 320)
 MainFrame.Active = true
 MainFrame.Draggable = true 
-applyRetroTheme(MainFrame)
+applyRetroTheme(MainFrame, true)
 
--- Top Bar
 local TopBar = Instance.new("Frame", MainFrame)
 TopBar.Size = UDim2.new(1, 0, 0, 35)
-applyRetroTheme(TopBar)
+TopBar.BackgroundTransparency = 1
 
 local Title = Instance.new("TextLabel", TopBar)
 Title.BackgroundTransparency = 1
-Title.Position = UDim2.new(0, 10, 0, 0)
+Title.Position = UDim2.new(0, 15, 0, 0)
 Title.Size = UDim2.new(0.7, 0, 1, 0)
 Title.Text = "Xellware Hub - God Mode"
 Title.TextColor3 = Color3.new(1, 1, 1)
@@ -91,32 +97,37 @@ local CloseButton = Instance.new("TextButton", TopBar)
 CloseButton.Position = UDim2.new(1, -35, 0, 5)
 CloseButton.Size = UDim2.new(0, 25, 0, 25)
 CloseButton.Text = "X"
-applyRetroTheme(CloseButton)
+applyRetroTheme(CloseButton, true)
 
--- Tabs
+local Line = Instance.new("Frame", MainFrame)
+Line.Size = UDim2.new(1, 0, 0, 1)
+Line.Position = UDim2.new(0, 0, 0, 35)
+Line.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+Line.BorderSizePixel = 0
+
 local TabBar = Instance.new("Frame", MainFrame)
-TabBar.Position = UDim2.new(0, 0, 0, 40)
+TabBar.Position = UDim2.new(0, 0, 0, 36)
 TabBar.Size = UDim2.new(1, 0, 0, 35)
-applyRetroTheme(TabBar)
+TabBar.BackgroundTransparency = 1
 
-local function createTabButton(text, posOffset)
+local function createTabButton(text, posOffset, widthPercent)
     local btn = Instance.new("TextButton", TabBar)
-    btn.Position = UDim2.new(posOffset, 5, 0, 0)
-    btn.Size = UDim2.new(0.45, -5, 1, 0) 
+    btn.Position = UDim2.new(posOffset, 5, 0, 5)
+    btn.Size = UDim2.new(widthPercent, -10, 1, -10) 
     btn.Text = text
-    btn.TextSize = 14
-    applyRetroTheme(btn)
+    btn.TextSize = 13
+    applyRetroTheme(btn, true)
     return btn
 end
 
-local TabBtn_Hitbox = createTabButton("Hitbox", 0)
-local TabBtn_Weave = createTabButton("God Weave", 0.5)
+local TabBtn_Hitbox = createTabButton("Hitbox", 0, 0.33)
+local TabBtn_Weave = createTabButton("Weave", 0.33, 0.33)
+local TabBtn_Settings = createTabButton("Settings", 0.66, 0.33)
 
--- Pages
 local PagesContainer = Instance.new("Frame", MainFrame)
 PagesContainer.BackgroundTransparency = 1
-PagesContainer.Position = UDim2.new(0, 10, 0, 85)
-PagesContainer.Size = UDim2.new(1, -20, 1, -95)
+PagesContainer.Position = UDim2.new(0, 10, 0, 80)
+PagesContainer.Size = UDim2.new(1, -20, 1, -90)
 
 local function createPage(name)
     local page = Instance.new("ScrollingFrame", PagesContainer)
@@ -133,26 +144,26 @@ end
 
 local Page_Hitbox = createPage("HitboxPage")
 local Page_Weave = createPage("WeavePage")
-Page_Weave.Visible = true 
+local Page_Settings = createPage("SettingsPage")
+Page_Hitbox.Visible = true 
 
--- Generators
 local function createToggle(parent, text, defaultState)
     local btn = Instance.new("TextButton", parent)
     btn.Size = UDim2.new(1, -10, 0, 35)
     btn.Text = text .. (defaultState and ": ON" or ": OFF")
-    btn.TextSize = 16
-    applyRetroTheme(btn)
+    btn.TextSize = 15
+    applyRetroTheme(btn, true)
     return btn
 end
 
 local function createSlider(parent, text, minVal, maxVal, defaultVal, callback)
     local container = Instance.new("Frame", parent)
     container.Size = UDim2.new(1, -10, 0, 45)
-    applyRetroTheme(container)
+    applyRetroTheme(container, true)
     
     local label = Instance.new("TextLabel", container)
     label.Size = UDim2.new(1, -10, 0, 20)
-    label.Position = UDim2.new(0, 5, 0, 0)
+    label.Position = UDim2.new(0, 8, 0, 0)
     label.BackgroundTransparency = 1
     label.Text = text .. ": " .. tostring(defaultVal)
     label.TextColor3 = Color3.new(1, 1, 1)
@@ -161,17 +172,21 @@ local function createSlider(parent, text, minVal, maxVal, defaultVal, callback)
     label.TextXAlignment = Enum.TextXAlignment.Left
     
     local track = Instance.new("Frame", container)
-    track.Size = UDim2.new(1, -20, 0, 10)
-    track.Position = UDim2.new(0, 10, 0, 25)
+    track.Size = UDim2.new(1, -20, 0, 8)
+    track.Position = UDim2.new(0, 10, 0, 26)
     track.BackgroundColor3 = Color3.new(0, 0, 0)
     local stroke = Instance.new("UIStroke", track)
     stroke.Color = Color3.new(1, 1, 1)
     stroke.Thickness = 1
+    local corner1 = Instance.new("UICorner", track)
+    corner1.CornerRadius = UDim.new(1, 0)
     
     local fill = Instance.new("Frame", track)
     fill.Size = UDim2.new((defaultVal - minVal) / (maxVal - minVal), 0, 1, 0)
     fill.BackgroundColor3 = Color3.new(1, 1, 1)
     fill.BorderSizePixel = 0
+    local corner2 = Instance.new("UICorner", fill)
+    corner2.CornerRadius = UDim.new(1, 0)
     
     local button = Instance.new("TextButton", track)
     button.Size = UDim2.new(1, 0, 1, 0)
@@ -211,20 +226,22 @@ local function createSlider(parent, text, minVal, maxVal, defaultVal, callback)
     return container
 end
 
--- Populate UI Elements
-local RecLabel = Instance.new("TextLabel", Page_Hitbox)
-RecLabel.Size = UDim2.new(1, -10, 0, 20)
-RecLabel.BackgroundTransparency = 1
-RecLabel.Text = "[ Recommended Hitbox Size: 8.5 ]"
-RecLabel.TextColor3 = Color3.new(0.8, 0.8, 0.8)
-RecLabel.Font = Enum.Font.Code
-RecLabel.TextSize = 13
-RecLabel.TextXAlignment = Enum.TextXAlignment.Center
+local function createLabel(parent, text)
+    local lbl = Instance.new("TextLabel", parent)
+    lbl.Size = UDim2.new(1, -10, 0, 20)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = text
+    lbl.TextColor3 = Color3.new(0.7, 0.7, 0.7)
+    lbl.Font = Enum.Font.Code
+    lbl.TextSize = 13
+    lbl.TextXAlignment = Enum.TextXAlignment.Center
+    return lbl
+end
 
--- NEW: Independent Toggles for Regular & Smart Hitboxes
+-- ==== POPULATING TABS ====
+createLabel(Page_Hitbox, "[ Recommended Hitbox Size: 8.5 ]")
 local Toggle_RegularHitbox = createToggle(Page_Hitbox, "Regular Hitbox", false)
 local Toggle_SmartHitbox = createToggle(Page_Hitbox, "Smart Hitbox (99% Hit Rate)", false)
-
 createSlider(Page_Hitbox, "Hitbox Size", 1.0, 25.0, 8.5, function(val) HitboxSize = val end)
 createSlider(Page_Hitbox, "Hide Visuals", 0.0, 1.0, 0.0, function(val) HitboxTrans = val end)
 local Toggle_Ground = createToggle(Page_Hitbox, "Hit Grounded (Ragdoll)", false)
@@ -233,14 +250,20 @@ local Toggle_Weave = createToggle(Page_Weave, "God Auto Weave", false)
 createSlider(Page_Weave, "Blink Speed", 0.005, 0.30, 0.02, function(val) WeaveBlinkSpeed = val end)
 createSlider(Page_Weave, "Hit Pause Time", 0.01, 1.00, 0.50, function(val) HitRegisterPauseTime = val end) 
 
+createLabel(Page_Settings, "[ Press SHIFT to hide entire GUI ]")
+local Toggle_AntiStand = createToggle(Page_Settings, "Anti-Stand (Fix Head Collisions)", true)
+
 -- ==== UI LOGIC ====
-local function switchTab(activeBtn, activePage)
-    Page_Hitbox.Visible, Page_Weave.Visible = false, false
+local function switchTab(activePage)
+    Page_Hitbox.Visible = false
+    Page_Weave.Visible = false
+    Page_Settings.Visible = false
     activePage.Visible = true
 end
 
-TabBtn_Hitbox.MouseButton1Click:Connect(function() switchTab(TabBtn_Hitbox, Page_Hitbox) end)
-TabBtn_Weave.MouseButton1Click:Connect(function() switchTab(TabBtn_Weave, Page_Weave) end)
+TabBtn_Hitbox.MouseButton1Click:Connect(function() switchTab(Page_Hitbox) end)
+TabBtn_Weave.MouseButton1Click:Connect(function() switchTab(Page_Weave) end)
+TabBtn_Settings.MouseButton1Click:Connect(function() switchTab(Page_Settings) end)
 
 CloseButton.MouseButton1Click:Connect(function() MainFrame.Visible = false; OpenButton.Visible = true end)
 OpenButton.MouseButton1Click:Connect(function() MainFrame.Visible = true; OpenButton.Visible = false end)
@@ -253,6 +276,11 @@ end)
 Toggle_SmartHitbox.MouseButton1Click:Connect(function() 
     SmartHitboxEnabled = not SmartHitboxEnabled
     Toggle_SmartHitbox.Text = "Smart Hitbox (99% Hit Rate): " .. (SmartHitboxEnabled and "ON" or "OFF")
+end)
+
+Toggle_AntiStand.MouseButton1Click:Connect(function() 
+    AntiStandEnabled = not AntiStandEnabled
+    Toggle_AntiStand.Text = "Anti-Stand (Fix Head Collisions): " .. (AntiStandEnabled and "ON" or "OFF")
 end)
 
 Toggle_Ground.MouseButton1Click:Connect(function() 
@@ -273,75 +301,91 @@ Toggle_Weave.MouseButton1Click:Connect(function()
     end
 end)
 
--- ==== SMART HITBOX: SPATIAL QUERY LOOP ====
-local function executeSmartSwing()
-    -- Only run the guaranteed hit loop if the Smart Hitbox toggle is ON
-    if isAttacking or not SmartHitboxEnabled then return end
-    isAttacking = true
-    table.clear(hitCharacters)
-
-    local startTime = os.clock()
-    local connection
-
-    local swingDuration = math.min(HitRegisterPauseTime, 0.4) 
-
-    connection = RunService.Heartbeat:Connect(function()
-        if os.clock() - startTime >= swingDuration then
-            isAttacking = false
-            connection:Disconnect()
-            return
-        end
-
-        local character = LocalPlayer.Character
-        if not character or not character:FindFirstChild("HumanoidRootPart") then return end
-
-        local hrp = character.HumanoidRootPart
-        
-        local boxSize = Vector3.new(HitboxSize, HitboxSize, HitboxSize)
-        local boxCFrame = hrp.CFrame * CFrame.new(0, 0, -(HitboxSize / 2))
-
-        local overlapParams = OverlapParams.new()
-        overlapParams.FilterDescendantsInstances = {character}
-        overlapParams.FilterType = Enum.RaycastFilterType.Exclude
-
-        local partsInBox = workspace:GetPartBoundsInBox(boxCFrame, boxSize, overlapParams)
-
-        for _, part in ipairs(partsInBox) do
-            local model = part:FindFirstAncestorOfClass("Model")
-            
-            if model and model:FindFirstChild("Humanoid") then
-                local humanoid = model.Humanoid
-                local state = humanoid:GetState()
-                local isRagdolled = humanoid.PlatformStand or state == Enum.HumanoidStateType.Ragdoll or state == Enum.HumanoidStateType.FallingDown or state == Enum.HumanoidStateType.Physics
-                
-                if humanoid.Health > 0 and not hitCharacters[model] then
-                    if not isRagdolled or GroundHitEnabled then
-                        hitCharacters[model] = true 
-                        HitEvent:FireServer(model)
-                    end
-                end
-            end
-        end
-    end)
-end
-
--- ==== AUTO-CONNECT: FORCING HITS TO REGISTER ====
+-- ==== INPUT CAPTURE & REVERTED SMART HITBOX ====
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if not gameProcessed and (input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.RightShift) then
+        guiVisible = not guiVisible
+        ScreenGui.Enabled = guiVisible
+    end
+
     if not gameProcessed then
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             local now = os.clock()
             
             if now >= AttackPauseUntil then
                 AttackPauseUntil = now + HitRegisterPauseTime
+                isAttacking = true
                 
-                executeSmartSwing()
-
+                -- INSTANT WEAVE DROP (Must be unblinked to register damage)
                 if AutoWeaveEnabled and CurrentWeaveState and LocalPlayer.Character then
                     local core = LocalPlayer.Character:FindFirstChild("Core")
                     if core and core:FindFirstChild("Communicate") and core.Communicate:FindFirstChild("") then
                         core.Communicate[""]:FireServer("Weave", nil, false, nil)
                         CurrentWeaveState = false
                     end
+                end
+                
+                if SmartHitboxEnabled then
+                    table.clear(hitCharacters)
+                    
+                    local startTime = os.clock()
+                    local swingDuration = math.min(HitRegisterPauseTime, 0.4) 
+                    local lastHrpCFrame = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") and LocalPlayer.Character.HumanoidRootPart.CFrame
+                    
+                    local connection
+                    connection = RunService.Heartbeat:Connect(function()
+                        if os.clock() - startTime >= swingDuration then
+                            isAttacking = false
+                            if connection then connection:Disconnect() end
+                            return
+                        end
+                        
+                        local character = LocalPlayer.Character
+                        if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+                        
+                        local hrp = character.HumanoidRootPart
+                        local currentCFrame = hrp.CFrame
+                        
+                        -- Spatial Hitbox Frame Interpolation (Zero-Delay Version)
+                        local distanceMoved = 0
+                        local boxCFrame = currentCFrame
+                        
+                        if lastHrpCFrame then
+                            distanceMoved = (currentCFrame.Position - lastHrpCFrame.Position).Magnitude
+                            if distanceMoved > 0.01 then
+                                boxCFrame = CFrame.lookAt(lastHrpCFrame.Position, currentCFrame.Position) * CFrame.new(0, 0, -distanceMoved / 2)
+                            end
+                        end
+                        
+                        local boxSize = Vector3.new(HitboxSize, HitboxSize, HitboxSize + distanceMoved)
+                        lastHrpCFrame = currentCFrame 
+                        
+                        local overlapParams = OverlapParams.new()
+                        overlapParams.FilterDescendantsInstances = {character}
+                        overlapParams.FilterType = Enum.RaycastFilterType.Exclude
+                        
+                        local partsInBox = workspace:GetPartBoundsInBox(boxCFrame, boxSize, overlapParams)
+                        
+                        for _, part in ipairs(partsInBox) do
+                            local model = part:FindFirstAncestorOfClass("Model")
+                            if model and model ~= character and model:FindFirstChild("Humanoid") then
+                                local humanoid = model.Humanoid
+                                local state = humanoid:GetState()
+                                local isRagdolled = humanoid.PlatformStand or state == Enum.HumanoidStateType.Ragdoll or state == Enum.HumanoidStateType.FallingDown or state == Enum.HumanoidStateType.Physics
+                                
+                                if humanoid.Health > 0 and not hitCharacters[model] then
+                                    if not isRagdolled or GroundHitEnabled then
+                                        hitCharacters[model] = true 
+                                        HitEvent:FireServer(model)
+                                    end
+                                end
+                            end
+                        end
+                    end)
+                else
+                    task.delay(0.35, function()
+                        isAttacking = false 
+                    end)
                 end
             end
         end
@@ -350,7 +394,7 @@ end)
 
 -- ==== GOD WEAVE BLINK LOOP ====
 RunService.Heartbeat:Connect(function()
-    if AutoWeaveEnabled and LocalPlayer.Character then
+    if AutoWeaveEnabled and not isAttacking and LocalPlayer.Character then
         local now = os.clock()
         
         if now >= NextWeaveToggle then
@@ -361,12 +405,27 @@ RunService.Heartbeat:Connect(function()
                 if CurrentWeaveState then
                     remote:FireServer("Weave", nil, false, nil)
                     CurrentWeaveState = false
-                    NextWeaveToggle = now 
+                    NextWeaveToggle = now + WeaveBlinkSpeed 
                 else
                     remote:FireServer("Weave", nil, true)
                     CurrentWeaveState = true
-                    NextWeaveToggle = now + WeaveBlinkSpeed
+                    NextWeaveToggle = now + WeaveBlinkSpeed 
                 end
+            end
+        end
+    end
+end)
+
+-- ==== ANTI-STAND COLLISION FIX ====
+RunService.Stepped:Connect(function()
+    if RegularHitboxEnabled and AntiStandEnabled then
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character then
+                local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+                local head = player.Character:FindFirstChild("Head")
+                
+                if hrp then hrp.CanCollide = false end
+                if head then head.CanCollide = false end
             end
         end
     end
@@ -380,11 +439,9 @@ RunService.RenderStepped:Connect(function()
             local hrp = player.Character.HumanoidRootPart
             local humanoid = player.Character.Humanoid
             
-            -- Only changes size and adds the red outline if the Regular Hitbox toggle is ON
             if RegularHitboxEnabled and humanoid.Health > 0 then
                 hrp.Size = Vector3.new(HitboxSize, HitboxSize, HitboxSize)
                 hrp.Transparency = 1 
-                hrp.CanCollide = false 
                 
                 local outline = hrp:FindFirstChild("HitboxOutline")
                 if not outline then
@@ -392,7 +449,7 @@ RunService.RenderStepped:Connect(function()
                     outline.Name = "HitboxOutline"
                     outline.Adornee = hrp
                     outline.LineThickness = 0.05 
-                    outline.Color3 = Color3.new(1, 0, 0) -- Pure Red
+                    outline.Color3 = Color3.new(1, 0, 0)
                     outline.Parent = hrp
                 end
                 
